@@ -142,7 +142,7 @@
 
 <header>
   <h1>Admin — แบบสอบถาม</h1>
-  <a href="แบบสอบถาม.html">กลับหน้าฟอร์ม</a>
+  <a href="/">กลับหน้าฟอร์ม</a>
 </header>
 
 <div class="stats">
@@ -170,7 +170,7 @@
         <th data-k="name">ชื่อ-นามสกุล ↕</th>
         <th data-k="email">อีเมล ↕</th>
         <th data-k="phone">เบอร์โทร ↕</th>
-        <th data-k="timestamp">วันเวลา ↕</th>
+        <th data-k="created_at">วันเวลา ↕</th>
         <th style="width:60px"></th>
       </tr>
     </thead>
@@ -181,27 +181,30 @@
 <div id="toast"></div>
 
 <script>
-  const KEY = 'survey_data';
-  let sortKey = 'timestamp', sortAsc = false;
+  let allData = [];
+  let sortKey = 'created_at', sortAsc = false;
 
-  function load() {
-    return JSON.parse(localStorage.getItem(KEY) || '[]');
+  function fmt(iso) {
+    return new Date(iso).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
   }
-  function save(data) {
-    localStorage.setItem(KEY, JSON.stringify(data));
+
+  async function loadData() {
+    const res = await fetch('/api/survey');
+    allData = await res.json();
   }
 
   function render() {
-    const all = load();
-    const q   = document.getElementById('q').value.trim().toLowerCase();
+    const q = document.getElementById('q').value.trim().toLowerCase();
+    const today = new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-    const today = new Date().toLocaleDateString('th-TH');
-    document.getElementById('sTotal').textContent = all.length;
-    document.getElementById('sToday').textContent = all.filter(r => r.timestamp && r.timestamp.startsWith(today.split('/').reverse().join('-').slice(0,10))).length;
+    document.getElementById('sTotal').textContent = allData.length;
+    document.getElementById('sToday').textContent = allData.filter(r =>
+      new Date(r.created_at).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) === today
+    ).length;
 
     let rows = q
-      ? all.filter(r => [r.name, r.email, r.phone].some(v => (v||'').toLowerCase().includes(q)))
-      : [...all];
+      ? allData.filter(r => [r.name, r.email, r.phone].some(v => (v||'').toLowerCase().includes(q)))
+      : [...allData];
 
     rows.sort((a, b) => {
       const av = (a[sortKey] || '').toString();
@@ -220,7 +223,7 @@
         <td>${esc(r.name)}</td>
         <td>${esc(r.email)}</td>
         <td>${esc(r.phone)}</td>
-        <td>${esc(r.timestamp)}</td>
+        <td>${esc(fmt(r.created_at))}</td>
         <td><button class="del-btn" onclick="del('${r.id}')">ลบ</button></td>
       </tr>
     `).join('');
@@ -230,34 +233,43 @@
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function del(id) {
+  async function del(id) {
     if (!confirm('ลบข้อมูลนี้ใช่หรือไม่?')) return;
-    save(load().filter(r => r.id !== id));
-    render();
-    toast('ลบแล้ว', 'ok');
+    try {
+      await fetch('/api/survey/' + id, { method: 'DELETE' });
+      allData = allData.filter(r => r.id !== id);
+      render();
+      toast('ลบแล้ว', 'ok');
+    } catch {
+      toast('เกิดข้อผิดพลาด', 'err');
+    }
   }
 
-  function clearAll() {
+  async function clearAll() {
     if (!confirm('ลบข้อมูลทั้งหมดใช่หรือไม่?')) return;
-    localStorage.removeItem(KEY);
-    render();
-    toast('ลบทั้งหมดแล้ว', 'ok');
+    try {
+      await fetch('/api/survey', { method: 'DELETE' });
+      allData = [];
+      render();
+      toast('ลบทั้งหมดแล้ว', 'ok');
+    } catch {
+      toast('เกิดข้อผิดพลาด', 'err');
+    }
   }
 
   function exportCSV() {
-    const all = load();
-    if (!all.length) { toast('ไม่มีข้อมูล', 'err'); return; }
+    if (!allData.length) { toast('ไม่มีข้อมูล', 'err'); return; }
     const header = ['ลำดับ','ชื่อ-นามสกุล','อีเมล','เบอร์โทร','วันเวลา'];
-    const rows   = all.map((r, i) => [
+    const rows = allData.map((r, i) => [
       i+1,
       `"${(r.name||'').replace(/"/g,'""')}"`,
       `"${(r.email||'').replace(/"/g,'""')}"`,
       `"${(r.phone||'').replace(/"/g,'""')}"`,
-      `"${(r.timestamp||'').replace(/"/g,'""')}"`
+      `"${fmt(r.created_at).replace(/"/g,'""')}"`
     ].join(','));
     const csv  = '﻿' + header.join(',') + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const a    = Object.assign(document.createElement('a'), {
+    const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob),
       download: `survey_${new Date().toISOString().slice(0,10)}.csv`
     });
@@ -265,7 +277,6 @@
     toast('Export เสร็จแล้ว', 'ok');
   }
 
-  // sort headers
   document.querySelectorAll('thead th[data-k]').forEach(th => {
     th.addEventListener('click', () => {
       const k = th.dataset.k;
@@ -286,7 +297,7 @@
     tt = setTimeout(() => el.className = '', 2500);
   }
 
-  render();
+  loadData().then(render).catch(() => toast('โหลดข้อมูลไม่สำเร็จ', 'err'));
 </script>
 </body>
 </html>

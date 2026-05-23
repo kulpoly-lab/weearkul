@@ -70,6 +70,7 @@
       transition: opacity 0.2s;
     }
     button[type="submit"]:hover { opacity: 0.9; }
+    button[type="submit"]:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .admin-link {
       display: block;
@@ -139,28 +140,26 @@
       <div class="err-msg" id="phoneErr">กรุณากรอกเบอร์โทร 10 หลัก</div>
     </div>
 
-    <button type="submit">ส่งข้อมูล</button>
+    <button type="submit" id="submitBtn">ส่งข้อมูล</button>
   </form>
 
   <div class="success" id="success">
-    <div class="icon">✅</div>
+    <div class="icon">&#9989;</div>
     <h2>ส่งข้อมูลเรียบร้อยแล้ว!</h2>
     <p>ขอบคุณที่ร่วมตอบแบบสอบถาม</p>
     <div class="summary" id="summary"></div>
-    <button class="btn-new" onclick="reset()">กรอกข้อมูลใหม่</button>
+    <button class="btn-new" onclick="resetForm()">กรอกข้อมูลใหม่</button>
   </div>
 
   <a class="admin-link" href="admin.html">ดูข้อมูลทั้งหมด (Admin)</a>
 </div>
 
 <script>
-  const KEY = 'survey_data';
-
   document.getElementById('phone').addEventListener('input', function() {
     this.value = this.value.replace(/\D/g, '');
   });
 
-  document.getElementById('form').addEventListener('submit', function(e) {
+  document.getElementById('form').addEventListener('submit', async function(e) {
     e.preventDefault();
     const name  = document.getElementById('name');
     const email = document.getElementById('email');
@@ -183,31 +182,44 @@
     check(phone, 'phoneErr', v => /^0\d{9}$/.test(v));
     if (!ok) return;
 
-    const record = {
-      id:        crypto.randomUUID(),
-      name:      name.value.trim(),
-      email:     email.value.trim(),
-      phone:     phone.value.trim(),
-      timestamp: new Date().toLocaleString('th-TH')
-    };
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'กำลังส่ง...';
 
-    const data = JSON.parse(localStorage.getItem(KEY) || '[]');
-    data.push(record);
-    localStorage.setItem(KEY, JSON.stringify(data));
+    try {
+      const res = await fetch('/api/survey', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:  name.value.trim(),
+          email: email.value.trim(),
+          phone: phone.value.trim()
+        })
+      });
+      if (!res.ok) throw new Error('Server error');
+      const record = await res.json();
 
-    document.getElementById('summary').innerHTML =
-      `<strong>ชื่อ:</strong> ${record.name}<br>` +
-      `<strong>อีเมล:</strong> ${record.email}<br>` +
-      `<strong>เบอร์โทร:</strong> ${record.phone}`;
+      document.getElementById('summary').innerHTML =
+        `<strong>ชื่อ:</strong> ${record.name}<br>` +
+        `<strong>อีเมล:</strong> ${record.email}<br>` +
+        `<strong>เบอร์โทร:</strong> ${record.phone}`;
 
-    document.getElementById('form').style.display = 'none';
-    document.getElementById('success').classList.add('show');
+      document.getElementById('form').style.display = 'none';
+      document.getElementById('success').classList.add('show');
+    } catch (err) {
+      alert('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง');
+      btn.disabled = false;
+      btn.textContent = 'ส่งข้อมูล';
+    }
   });
 
-  function reset() {
+  function resetForm() {
     document.getElementById('form').reset();
     document.getElementById('form').style.display = 'block';
     document.getElementById('success').classList.remove('show');
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = false;
+    btn.textContent = 'ส่งข้อมูล';
     ['name','email','phone'].forEach(id => document.getElementById(id).classList.remove('err'));
     ['nameErr','emailErr','phoneErr'].forEach(id => document.getElementById(id).classList.remove('show'));
   }
